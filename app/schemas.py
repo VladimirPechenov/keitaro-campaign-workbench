@@ -34,6 +34,7 @@ class OfferRow(BaseModel):
     state: Literal["active", "disabled"] = "active"
     pinned: bool = False
     removed: bool = False
+    archived: bool = False
 
 
 class OfferChange(Input):

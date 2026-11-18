@@ -8,14 +8,13 @@ import httpx
 from fastapi import Depends, FastAPI, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.campaigns import campaign_summary, create_campaign
 from app.config import Settings
-from app.db import StreamDraft, make_engine
+from app.db import make_engine
 from app.demo import DemoTracker
-from app.editor import change_offer, finish_draft, require_stream, view_stream
+from app.editor import change_offer, finish_draft, require_stream, sync_stream_views
 from app.schemas import CreateCampaign, Id, OfferChange, Period, Revision
 from app.tracker import Tracker, WorkbenchError, choices
 
@@ -118,22 +117,18 @@ def create_app(settings: Settings | None = None, transport: httpx.BaseTransport 
     @app.get("/api/campaigns/{campaign_id}")
     def campaign_detail(campaign_id: Id, db: Db, tracker: Keitaro):
         campaign = tracker.campaign(campaign_id)
-        streams = sorted(
-            tracker.streams(campaign_id),
-            key=lambda stream: (stream.get("position") or 0, stream["id"]),
-        )
-        draft_rows = db.scalars(
-            select(StreamDraft).where(
-                StreamDraft.stream_id.in_([stream["id"] for stream in streams])
+        with mutate:
+            streams = sorted(
+                tracker.streams(campaign_id),
+                key=lambda stream: (stream.get("position") or 0, stream["id"]),
             )
-        )
-        drafts = {draft.stream_id: draft for draft in draft_rows}
+            stream_views = sync_stream_views(db, streams)
         return {
             **campaign_summary(campaign),
             "domain_id": campaign.get("domain_id"),
             "group_id": campaign.get("group_id"),
             "traffic_source_id": campaign.get("traffic_source_id"),
-            "streams": [view_stream(stream, drafts.get(stream["id"])) for stream in streams],
+            "streams": stream_views,
         }
 
     @app.get("/api/campaigns/{campaign_id}/report")

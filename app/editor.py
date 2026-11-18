@@ -2,6 +2,7 @@ import hashlib
 import json
 from uuid import uuid4
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.campaigns import require_active_offer
@@ -52,11 +53,58 @@ def stream_version(stream, offers):
     return hashlib.sha256(json.dumps(content).encode()).hexdigest()
 
 
+def new_draft(stream_id):
+    return StreamDraft(
+        stream_id=stream_id, revision=str(uuid4()), published_pins=[], known_offers=[]
+    )
+
+
+def attached_ids(stream):
+    return {int(offer["offer_id"]) for offer in stream.get("offers") or []}
+
+
+def remember_offers(draft, ids):
+    known = sorted(set(draft.known_offers) | ids)
+    if known != draft.known_offers:
+        draft.known_offers = known
+
+
+def sync_stream_views(db: Session, streams):
+    drafts = {
+        draft.stream_id: draft
+        for draft in db.scalars(
+            select(StreamDraft).where(
+                StreamDraft.stream_id.in_([stream["id"] for stream in streams])
+            )
+        )
+    }
+    views = []
+    for stream in streams:
+        draft = drafts.get(stream["id"])
+        ids = attached_ids(stream)
+        if ids and editable(stream):
+            if draft is None:
+                draft = new_draft(stream["id"])
+                db.add(draft)
+            remember_offers(draft, ids)
+        views.append(view_stream(stream, draft))
+    if db.new or db.dirty:
+        db.commit()
+    return views
+
+
 def view_stream(stream, draft):
     published = remote_offers(stream, draft.published_pins if draft else ())
     stream_token = stream_version(stream, published)
     staged = draft is not None and draft.items is not None
-    offers = [OfferRow.model_validate(item) for item in draft.items] if staged else published
+    if staged:
+        offers = [OfferRow.model_validate(item) for item in draft.items]
+    else:
+        archived_ids = sorted(set(draft.known_offers) - attached_ids(stream)) if draft else []
+        offers = published + [
+            OfferRow(offer_id=offer_id, share=0, removed=True, archived=True)
+            for offer_id in archived_ids
+        ]
     changed = staged and draft.base_version != stream_token
     return {
         "id": stream["id"],
@@ -124,6 +172,9 @@ def change_offer(db: Session, tracker, stream, change: OfferChange):
     elif change.action == "remove":
         item.removed = True
     elif change.action == "restore":
+        if item.archived:
+            require_active_offer(tracker, item.offer_id)
+            item.archived = False
         item.removed = False
     else:
         if not active(item):
@@ -136,8 +187,9 @@ def change_offer(db: Session, tracker, stream, change: OfferChange):
 
     rebalance(items)
     if draft is None:
-        draft = StreamDraft(stream_id=stream["id"], published_pins=[])
+        draft = new_draft(stream["id"])
         db.add(draft)
+    remember_offers(draft, attached_ids(stream))
     if not view["staged"]:
         draft.base_version = stream_version(stream, remote_offers(stream))
     draft.items = [item.model_dump() for item in items]
@@ -152,6 +204,7 @@ def finish_draft(db: Session, tracker, stream, version, publish):
     require_version(view, version)
     if not view["staged"]:
         return view
+    remember_offers(draft, attached_ids(stream))
     if publish:
         if view["conflict"]:
             raise WorkbenchError(
@@ -172,6 +225,7 @@ def finish_draft(db: Session, tracker, stream, version, publish):
             if offer_signature(desired) != offer_signature(remote_offers(stream)):
                 raise WorkbenchError("Keitaro вернул другой состав потока. Черновик сохранён.", 502)
         draft.published_pins = [item.offer_id for item in desired if item.pinned]
+        remember_offers(draft, attached_ids(stream))
     draft.items = None
     draft.base_version = None
     draft.revision = str(uuid4())

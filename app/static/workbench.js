@@ -198,12 +198,6 @@ function offerOptions(rows) {
 function renderOffers(stream) {
   const attached = new Set(stream.offers.map((row) => row.offer_id));
   const remaining = state.offers?.active.filter((row) => !attached.has(row.id)) ?? [];
-  const hasCatalog = Boolean(state.offers);
-  const control = hasCatalog
-    ? `<select name="offer_id" aria-label="Оффер для добавления" required ${remaining.length ? "" : "disabled"}>
-        <option value="">${remaining.length ? "Выберите оффер" : "Нет доступных офферов"}</option>${offerOptions(remaining)}
-      </select>`
-    : '<input name="offer_id" type="number" min="1" placeholder="ID оффера" aria-label="ID оффера" required>';
   return `
     ${stream.offers.length ? `
       <div class="table-scroll" tabindex="0" role="region" aria-label="Офферы потока">
@@ -215,8 +209,13 @@ function renderOffers(stream) {
         </table>
       </div>` : '<p class="stream-description muted">В потоке нет офферов.</p>'}
     <form class="add-offer" data-action="add">
-      ${control}
-      <button type="submit" class="secondary" ${stream.conflict || (hasCatalog && !remaining.length) ? "disabled" : ""}>＋ Добавить</button>
+      <input name="offer_id" type="text" inputmode="numeric" pattern="[0-9]+" list="offers-${stream.id}"
+        placeholder="ID оффера или выбор из списка" aria-label="ID оффера для добавления"
+        required ${stream.conflict ? "disabled" : ""}>
+      <datalist id="offers-${stream.id}">
+        ${remaining.map((row) => `<option value="${row.id}" label="${safe(row.name)}"></option>`).join("")}
+      </datalist>
+      <button type="submit" class="secondary" ${stream.conflict ? "disabled" : ""}>＋ Добавить</button>
     </form>`;
 }
 
@@ -224,7 +223,7 @@ function offerRow(stream, item) {
   const id = item.offer_id;
   const name = state.offers?.names[id] || `Оффер #${id}`;
   const isActive = !item.removed && item.state === "active";
-  const rowStatus = item.removed ? "Будет удалён" : item.state === "disabled" ? "Отключён" : "";
+  const rowStatus = item.archived ? "В архиве" : item.removed ? "Будет удалён" : item.state === "disabled" ? "Отключён" : "";
   const disabled = stream.conflict ? "disabled" : "";
   return `<tr class="${item.removed ? "removed" : ""}" data-offer="${id}">
     <th scope="row"><span class="offer-name">${safe(name)}</span><span class="offer-ref">#${id}${rowStatus ? ` · ${rowStatus}` : ""}</span></th>

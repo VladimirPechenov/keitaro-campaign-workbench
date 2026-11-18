@@ -145,6 +145,33 @@ def test_draft_rebalance_pin_remove_restore_and_publish(client):
     assert {
         item["offer_id"]: item["share"] for item in client.app.state.tracker.stream(4811)["offers"]
     } == shares(published)
+    archived = next(item for item in offer_flow(client)["offers"] if item["offer_id"] == 103)
+    assert archived["removed"] and archived["archived"] and archived["share"] == 0
+    recovered = change(client, offer_flow(client), "restore", 103).json()
+    assert shares(recovered) == {101: 25, 102: 25, 103: 25, 104: 25}
+    assert client.post(f"{DEMO_EDITOR}/publish", json={"version": recovered["version"]}).is_success
+    assert shares(offer_flow(client)) == shares(recovered)
+
+
+def test_refresh_archives_offer_removed_directly_in_keitaro(client):
+    assert shares(offer_flow(client)) == {101: 34, 102: 33, 103: 33}
+    tracker = client.app.state.tracker
+    tracker.set_offers(
+        4811,
+        [
+            {"offer_id": 101, "share": 50, "state": "active"},
+            {"offer_id": 102, "share": 50, "state": "active"},
+        ],
+    )
+
+    refreshed = offer_flow(client)
+    assert not refreshed["staged"]
+    assert refreshed["offers"][-1]["offer_id"] == 103
+    assert refreshed["offers"][-1]["archived"]
+    draft = change(client, refreshed, "restore", 103).json()
+    assert draft["staged"] and shares(draft) == {101: 34, 102: 33, 103: 33}
+    published = client.post(f"{DEMO_EDITOR}/publish", json={"version": draft["version"]}).json()
+    assert shares(published) == shares(draft)
 
 
 def test_conflict_preserves_remote_changes_and_can_be_discarded(client):

@@ -23,6 +23,7 @@ class StreamDraft(Base):
     base_version: Mapped[str | None] = mapped_column(String(64))
     items: Mapped[list | None] = mapped_column(JSON(none_as_null=True))
     published_pins: Mapped[list[int]] = mapped_column(JSON)
+    known_offers: Mapped[list[int]] = mapped_column(JSON, default=list, server_default="[]")
 
 
 class DemoState(Base):
