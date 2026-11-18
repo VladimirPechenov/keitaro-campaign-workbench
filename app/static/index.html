@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#123935">
+  <title>Keitaro Workbench</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script type="module" src="/static/workbench.js"></script>
+</head>
+<body>
+  <header class="app-header">
+    <a class="brand" href="/" aria-label="Keitaro Workbench, главная">
+      <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span>Keitaro <strong>Workbench</strong></span>
+    </a>
+    <span id="connection" class="connection">Подключение…</span>
+  </header>
+  <div class="layout">
+    <aside class="sidebar" aria-label="Кампании">
+      <button id="new-campaign" class="primary">＋ Создать кампанию</button>
+      <div class="sidebar-heading">
+        <h2>Кампании</h2>
+        <button id="reload-list" type="button" class="icon-button" aria-label="Обновить список" title="Обновить список">↻</button>
+      </div>
+      <form id="open-by-id" class="id-form">
+        <input id="campaign-id" type="number" min="1" step="1" placeholder="ID кампании" aria-label="ID кампании" required>
+        <button type="submit" class="secondary">Открыть</button>
+      </form>
+      <p id="list-message" class="muted small" role="status"></p>
+      <nav id="campaign-list" aria-label="Доступные кампании"></nav>
+      <button id="more-campaigns" class="secondary wide" type="button" hidden>Показать ещё</button>
+    </aside>
+    <main id="main" class="workspace" aria-busy="true">
+      <p class="loading">Загружаем кампании…</p>
+    </main>
+  </div>
+  <div id="notice" class="notice" role="status" hidden></div>
+  <noscript>Включите JavaScript, чтобы открыть редактор кампаний.</noscript>
+</body>
+</html>
