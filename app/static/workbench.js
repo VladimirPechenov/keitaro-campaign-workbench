@@ -7,6 +7,7 @@ const state = {
 };
 const numbers = new Intl.NumberFormat("ru-RU");
 const number = (value) => numbers.format(value);
+const allocationColors = ["#167d68", "#477bb0", "#9360a7", "#b27636", "#487e46", "#6265ae"];
 const safe = (value) => String(value ?? "").replace(/[&<>"']/g, (character) => ({
   "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
 })[character]);
@@ -125,14 +126,20 @@ function renderCampaign() {
           target="_blank" rel="noopener noreferrer">В Keitaro ↗</a>` : "";
   const status = {active: "Активна", disabled: "Отключена", deleted: "В архиве"};
   root.innerHTML = `
-    <section class="campaign-header" aria-labelledby="campaign-title">
-      <div class="page-actions">
-        <button class="secondary" type="button" data-action="refresh">↻ Обновить</button>${trackerLink}
+    <section class="panel campaign-header" aria-labelledby="campaign-title">
+      <div class="campaign-top">
+        <div>
+          <div class="campaign-label">
+            <p class="kicker">Кампания #${campaign.id}</p>
+            <span class="badge ${campaign.state === "active" ? "active" : ""}">${status[campaign.state] || "—"}</span>
+          </div>
+          <h1 id="campaign-title">${safe(campaign.name)}</h1>
+        </div>
+        <div class="page-actions">
+          <button class="secondary" type="button" data-action="refresh">↻ Обновить</button>${trackerLink}
+        </div>
       </div>
-      <p class="kicker">Кампания #${campaign.id}</p>
-      <h1 id="campaign-title">${safe(campaign.name)}</h1>
       <dl class="campaign-meta">
-        <div><dt>Статус</dt><dd><span class="badge ${campaign.state === "active" ? "active" : ""}">${status[campaign.state] || "—"}</span></dd></div>
         <div><dt>Домен</dt><dd>${safe(catalogName("domains", campaign.domain_id))}</dd></div>
         <div><dt>Группа</dt><dd>${safe(catalogName("groups", campaign.group_id))}</dd></div>
         <div><dt>Источник</dt><dd>${safe(catalogName("sources", campaign.traffic_source_id))}</dd></div>
@@ -163,23 +170,29 @@ function renderStream(stream) {
     const values = Array.isArray(filter.payload) ? filter.payload.join(", ") : filter.payload;
     return `${filter.mode === "reject" ? "Кроме" : "Страна"} ${values || "—"}`;
   }).join(" · ");
-  const description = [geo, typeof stream.redirect_url === "string" ? stream.redirect_url : ""]
-    .filter(Boolean).join(" · ");
+  const redirect = typeof stream.redirect_url === "string" ? stream.redirect_url : "";
   return `
     <article class="panel stream ${stream.staged ? "staged" : ""}" data-stream="${stream.id}">
       <header class="stream-header">
-        <div>
-          <div class="stream-title"><h3>${safe(stream.name)}</h3>${draft}</div>
-          <p class="muted small">#${stream.id} · ${streamType} · <span data-clicks="${stream.id}">—</span> кликов</p>
+        <div class="stream-label">
+          <span class="stream-mark" aria-hidden="true">${redirect ? "↗" : "⇢"}</span>
+          <div>
+            <div class="stream-title"><h3>${safe(stream.name)}</h3>${draft}</div>
+            <p class="muted small">#${stream.id} · ${streamType} · <span data-clicks="${stream.id}">—</span> кликов</p>
+          </div>
         </div>
         ${stream.staged ? `<div class="actions">
-          <button class="secondary" type="button" data-action="discard">Отменить</button>
+          <button class="secondary" type="button" data-action="discard">Отменить правки</button>
           <button class="primary" type="button" data-action="publish" ${stream.conflict || !stream.editable ? "disabled" : ""}>
             Отправить в Keitaro
           </button>
         </div>` : ""}
       </header>
-      ${description ? `<p class="stream-description">${safe(description)}</p>` : ""}
+      ${geo || redirect ? `<div class="stream-path">
+        ${geo ? `<span>${safe(geo)}</span>` : ""}
+        ${geo && redirect ? '<span class="path-arrow" aria-hidden="true">→</span>' : ""}
+        ${redirect ? `<span>${safe(redirect)}</span>` : ""}
+      </div>` : ""}
       ${stream.conflict ? '<p class="stream-description warning" role="alert">Состав изменился в Keitaro. Отмените черновик, чтобы загрузить актуальные офферы.</p>' : ""}
       ${stream.editable ? renderOffers(stream) : ""}
     </article>`;
@@ -198,14 +211,22 @@ function offerOptions(rows) {
 function renderOffers(stream) {
   const attached = new Set(stream.offers.map((row) => row.offer_id));
   const remaining = state.offers?.active.filter((row) => !attached.has(row.id)) ?? [];
+  const active = stream.offers.filter((row) => row.state === "active" && !row.removed);
+  const tones = new Map(active.map((row, index) => [
+    row.offer_id, allocationColors[index % allocationColors.length],
+  ]));
+  const published = new Map((stream.published_offers ?? []).map((row) => [row.offer_id, row]));
   return `
+    ${renderAllocation(active, tones, stream.staged)}
     ${stream.offers.length ? `
       <div class="table-scroll" tabindex="0" role="region" aria-label="Офферы потока">
-        <table class="offer-table">
-          <thead><tr><th scope="col">Оффер</th><th scope="col">Доля</th><th scope="col">Клики</th>
+        <table class="offer-table" role="table">
+          <thead role="rowgroup"><tr role="row"><th scope="col">Оффер</th><th scope="col">Доля</th><th scope="col">Клики</th>
             <th scope="col">Конверсии</th><th scope="col">Продажи</th><th scope="col">Динамика кликов</th>
             <th scope="col"><span class="sr-only">Действия</span></th></tr></thead>
-          <tbody>${stream.offers.map((item) => offerRow(stream, item)).join("")}</tbody>
+          <tbody role="rowgroup">${stream.offers.map((item) => offerRow(
+            stream, item, tones.get(item.offer_id), published.get(item.offer_id),
+          )).join("")}</tbody>
         </table>
       </div>` : '<p class="stream-description muted">В потоке нет офферов.</p>'}
     <form class="add-offer" data-action="add">
@@ -219,15 +240,36 @@ function renderOffers(stream) {
     </form>`;
 }
 
-function offerRow(stream, item) {
+function renderAllocation(active, tones, staged) {
+  const total = active.reduce((sum, row) => sum + row.share, 0);
+  const pinnedShare = active.reduce((sum, row) => sum + (row.pinned ? row.share : 0), 0);
+  return `<div class="allocation">
+    <div class="allocation-label">
+      <div><strong>${staged ? "Доли после публикации" : "Распределение трафика"}</strong>
+        ${pinnedShare ? `<span class="muted small">${pinnedShare}% закреплено</span>` : ""}</div>
+      <span class="allocation-total ${active.length && total !== 100 ? "warning" : ""}">${total}%<span> назначено</span></span>
+    </div>
+    <div class="allocation-bar" aria-hidden="true">${active.map((row) => `
+      <span style="--part:${row.share / Math.max(100, total) * 100}%;--tone:${tones.get(row.offer_id)}"></span>`
+    ).join("")}</div>
+  </div>`;
+}
+
+function offerRow(stream, item, tone, previous) {
   const id = item.offer_id;
   const name = state.offers?.names[id] || `Оффер #${id}`;
   const isActive = !item.removed && item.state === "active";
-  const rowStatus = item.archived ? "В архиве" : item.removed ? "Будет удалён" : item.state === "disabled" ? "Отключён" : "";
+  const rowStatus = item.archived ? "В архиве" : item.removed ? "Будет удалён" :
+    item.state === "disabled" ? "Отключён" : stream.staged && !previous ? "Добавлен в черновик" : "";
+  const plannedShare = item.removed ? 0 : item.share;
+  const oldShare = previous && previous.share !== plannedShare
+    ? `<span class="previous-share">Было ${previous.share}%</span>` : "";
   const disabled = stream.conflict ? "disabled" : "";
-  return `<tr class="${item.removed ? "removed" : ""}" data-offer="${id}">
-    <th scope="row"><span class="offer-name">${safe(name)}</span><span class="offer-ref">#${id}${rowStatus ? ` · ${rowStatus}` : ""}</span></th>
-    <td>${isActive ? `
+  return `<tr role="row" class="${item.removed ? "removed" : ""}" data-offer="${id}">
+    <th scope="row" role="rowheader"><span class="offer-label">${tone ? `<i style="--tone:${tone}" aria-hidden="true"></i>` : ""}
+      <span><span class="offer-name">${safe(name)}</span><span class="offer-ref">#${id}${rowStatus ? ` · ${rowStatus}` : ""}</span></span>
+    </span></th>
+    <td role="cell" class="offer-share">${isActive ? `
       <div class="share-controls">
         <form data-action="share" title="Ввод новой доли закрепляет её. Применить можно клавишей Enter.">
           <label class="sr-only" for="share-${stream.id}-${id}">Доля оффера #${id}</label>
@@ -235,23 +277,27 @@ function offerRow(stream, item) {
           <span aria-hidden="true">%</span>
           <button type="submit" class="mini" aria-label="Применить долю оффера #${id}" title="Применить долю" ${disabled}>✓</button>
         </form>
-        <button type="button" class="mini pin ${item.pinned ? "pinned" : ""}" data-action="${item.pinned ? "unpin" : "pin"}"
+        <button type="button" class="pin ${item.pinned ? "pinned" : ""}" data-action="${item.pinned ? "unpin" : "pin"}"
             aria-label="${item.pinned ? "Открепить" : "Закрепить"} долю оффера #${id}"
-            title="${item.pinned ? "Открепить долю" : "Закрепить долю"}" ${disabled}>◆</button>
-      </div>` : `${item.removed ? 0 : item.share}%`}</td>
-    <td data-stat="${stream.id}:${id}" data-metric="clicks">—</td>
-    <td data-stat="${stream.id}:${id}" data-metric="conversions">—</td>
-    <td data-stat="${stream.id}:${id}" data-metric="sales">—</td>
-    <td data-stat="${stream.id}:${id}" data-metric="trend">—</td>
-    <td class="offer-action"><button class="text-button ${item.removed ? "" : "danger"}" type="button"
+            title="${item.pinned ? "Снять закрепление доли" : "Сохранить долю при пересчёте"}"
+            aria-pressed="${item.pinned}" ${disabled}>${item.pinned ? "Закреплена" : "Закрепить"}</button>
+      </div>` : `${plannedShare}%`}${oldShare}</td>
+    <td role="cell" data-stat="${stream.id}:${id}" data-metric="clicks" data-label="Клики">—</td>
+    <td role="cell" data-stat="${stream.id}:${id}" data-metric="conversions" data-label="Конверсии">—</td>
+    <td role="cell" data-stat="${stream.id}:${id}" data-metric="sales" data-label="Продажи">—</td>
+    <td role="cell" data-stat="${stream.id}:${id}" data-metric="trend" data-label="Динамика кликов">—</td>
+    <td role="cell" class="offer-action"><button class="text-button ${item.removed ? "" : "danger"}" type="button"
       data-action="${item.removed ? "restore" : "remove"}" ${disabled}>${item.removed ? "Вернуть" : "Удалить"}</button></td>
   </tr>`;
 }
 
-function metricCards(stats) {
+function metricCards(report) {
+  const stats = report?.totals;
   return [["clicks", "Клики"], ["conversions", "Конверсии"], ["sales", "Продажи"]]
-    .map(([metric, label]) => `<div class="panel metric"><p>${label}</p>
-      <strong>${stats ? number(stats[metric]) : "—"}</strong></div>`).join("");
+    .map(([metric, label]) => `<div class="panel metric">
+      <div><p>${label}</p><strong>${stats ? number(stats[metric]) : "—"}</strong></div>
+      ${metric === "clicks" && stats?.trend.some(Boolean) ? renderTrend(stats.trend, report.days) : ""}
+    </div>`).join("");
 }
 
 async function loadReport(days = state.days) {
@@ -275,7 +321,7 @@ function showReport() {
   const target = $("#metrics");
   if (!target) return;
   const report = state.report;
-  target.innerHTML = metricCards(report?.totals);
+  target.innerHTML = metricCards(report);
   const range = $("#report-range");
   range.textContent = state.reportError || (report
     ? `${shortDate(report.days[0])}${report.days.length > 1 ? ` – ${shortDate(report.days.at(-1))}` : ""} · ${report.timezone}`
@@ -292,14 +338,18 @@ function showReport() {
     const metric = cell.dataset.metric;
     if (metric === "trend" && report) {
       const trend = stats?.trend || report.days.map(() => 0);
-      const max = Math.max(...trend, 1);
-      const summary = trend.map((value, i) => `${shortDate(report.days[i])}: ${number(value)}`).join(", ");
-      cell.innerHTML = `<span class="trend" role="img" aria-label="${safe(summary)}" title="${safe(summary)}">
-        ${trend.map((value) => `<i style="--height:${value ? Math.max(value / max * 100, 7) : 0}%"></i>`).join("")}</span>`;
+      cell.innerHTML = renderTrend(trend, report.days);
     } else {
       cell.textContent = report ? number(stats?.[metric] ?? 0) : "—";
     }
   }
+}
+
+function renderTrend(trend, days) {
+  const max = Math.max(...trend, 1);
+  const summary = trend.map((value, index) => `${shortDate(days[index])} — ${number(value)}`).join(", ");
+  return `<span class="trend" role="img" aria-label="${safe(summary)}" title="${safe(summary)}">
+    ${trend.map((value) => `<i style="--height:${value ? Math.max(value / max * 100, 7) : 0}%"></i>`).join("")}</span>`;
 }
 
 function shortDate(iso) {
@@ -345,9 +395,14 @@ async function showCreate() {
           </form>
         </section>
         <aside class="panel creation-summary" aria-labelledby="routing-title">
-          <h2 id="routing-title">Маршрутизация</h2>
-          <ol><li><strong>Гео → Google</strong><span>Переходы из указанной страны.</span></li>
-            <li><strong>Остальные → оффер</strong><span>Выбранный оффер получает 100% трафика второго потока.</span></li></ol>
+          <h2 id="routing-title">Маршрут перехода</h2>
+          <ol class="route-preview" aria-live="polite">
+            <li><span class="route-icon" aria-hidden="true">↗</span>
+              <div><span id="route-country">Указанная страна</span><strong>Google</strong></div></li>
+            <li><span class="route-icon" aria-hidden="true">⇢</span>
+              <div><span>Остальной трафик</span><strong id="route-offer">Выбранный оффер</strong></div>
+              <span class="route-share">100%</span></li>
+          </ol>
         </aside>
       </div>`;
   } catch (error) {
@@ -358,6 +413,15 @@ async function showCreate() {
     if (nav === state.navigation) root.removeAttribute("aria-busy");
   }
 }
+
+root.addEventListener("input", (event) => {
+  const form = event.target.closest("#create-campaign");
+  if (!form || !["country", "offer_id"].includes(event.target.name)) return;
+  const {country, offer_id: offer} = form.elements;
+  const code = country.value.trim().toUpperCase();
+  $("#route-country").textContent = /^[A-Z]{2}$/.test(code) ? `Страна ${code}` : "Указанная страна";
+  $("#route-offer").textContent = state.offers?.names[offer.value] || "Выбранный оффер";
+});
 
 async function submitCampaign(form) {
   const values = Object.fromEntries(new FormData(form));

@@ -124,6 +124,7 @@ def test_draft_rebalance_pin_remove_restore_and_publish(client):
     before = offer_flow(client)
     added = change(client, before, "add", 104).json()
     assert shares(added) == {101: 25, 102: 25, 103: 25, 104: 25}
+    assert added["published_offers"] == before["offers"]
     assert change(client, before, "remove", 102).status_code == 409
 
     locked = change(client, added, "share", 101, share=25).json()
@@ -140,6 +141,7 @@ def test_draft_rebalance_pin_remove_restore_and_publish(client):
     removed = change(client, restored, "remove", 103).json()
     published = client.post(f"{DEMO_EDITOR}/publish", json={"version": removed["version"]}).json()
     assert published["staged"] is False
+    assert published["published_offers"] == []
     assert published["offers"][0]["pinned"] is True
     assert shares(published) == shares(removed)
     assert {

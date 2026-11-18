@@ -128,6 +128,7 @@ def view_stream(stream, draft):
         if staged
         else f"{stream_token}:{draft.revision if draft else ''}",
         "offers": [item.model_dump() for item in offers],
+        "published_offers": [item.model_dump() for item in published] if staged else [],
     }
 
 
