@@ -15,6 +15,18 @@ def active(item):
     return item.state == "active" and not item.removed
 
 
+def removes_last_destination(stream, published, planned):
+    if stream.get("state") != "active" or not editable(stream):
+        return False
+    had_offer = any(active(item) and item.share > 0 for item in published)
+    keeps_offer = any(active(item) and item.share > 0 for item in planned)
+    has_landing = any(
+        landing.get("state", "active") == "active" and int(landing.get("share") or 0) > 0
+        for landing in stream.get("landings") or []
+    )
+    return had_offer and not keeps_offer and not has_landing
+
+
 def rebalance(items):
     enabled = [item for item in items if active(item)]
     if not enabled:
@@ -106,6 +118,11 @@ def view_stream(stream, draft):
             for offer_id in archived_ids
         ]
     changed = staged and draft.base_version != stream_token
+    publish_error = (
+        "Активный поток останется без назначения. Добавьте оффер или верните удалённый."
+        if staged and removes_last_destination(stream, published, offers)
+        else None
+    )
     return {
         "id": stream["id"],
         "name": stream["name"],
@@ -124,6 +141,7 @@ def view_stream(stream, draft):
         "editable": editable(stream),
         "staged": staged,
         "conflict": changed and offer_signature(offers) != offer_signature(published),
+        "publish_error": publish_error,
         "version": draft.revision
         if staged
         else f"{stream_token}:{draft.revision if draft else ''}",
@@ -186,7 +204,8 @@ def change_offer(db: Session, tracker, stream, change: OfferChange):
             item.share = change.share
         item.pinned = change.action != "unpin"
 
-    rebalance(items)
+    if change.action not in ("pin", "unpin"):
+        rebalance(items)
     if draft is None:
         draft = new_draft(stream["id"])
         db.add(draft)
@@ -211,6 +230,8 @@ def finish_draft(db: Session, tracker, stream, version, publish):
             raise WorkbenchError(
                 "Офферы изменились в Keitaro. Отмените черновик и обновите данные.", 409
             )
+        if view["publish_error"]:
+            raise WorkbenchError(view["publish_error"])
         desired = [OfferRow.model_validate(item) for item in draft.items if not item["removed"]]
         if offer_signature(desired) != offer_signature(remote_offers(stream)):
             links = {int(link["offer_id"]): link for link in stream.get("offers") or []}

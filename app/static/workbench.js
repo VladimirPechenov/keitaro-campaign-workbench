@@ -166,6 +166,9 @@ function renderCampaign() {
 function renderStream(stream) {
   const draft = stream.staged ? '<span class="badge draft">Черновик</span>' : "";
   const streamType = streamTypes(stream);
+  const warning = stream.conflict
+    ? "Состав изменился в Keitaro. Отмените черновик, чтобы загрузить актуальные офферы."
+    : stream.publish_error;
   const geo = stream.country_filters.map((filter) => {
     const values = Array.isArray(filter.payload) ? filter.payload.join(", ") : filter.payload;
     return `${filter.mode === "reject" ? "Кроме" : "Страна"} ${values || "—"}`;
@@ -183,7 +186,7 @@ function renderStream(stream) {
         </div>
         ${stream.staged ? `<div class="actions">
           <button class="secondary" type="button" data-action="discard">Отменить правки</button>
-          <button class="primary" type="button" data-action="publish" ${stream.conflict || !stream.editable ? "disabled" : ""}>
+          <button class="primary" type="button" data-action="publish" ${warning || !stream.editable ? "disabled" : ""}>
             Отправить в Keitaro
           </button>
         </div>` : ""}
@@ -193,7 +196,7 @@ function renderStream(stream) {
         ${geo && redirect ? '<span class="path-arrow" aria-hidden="true">→</span>' : ""}
         ${redirect ? `<span>${safe(redirect)}</span>` : ""}
       </div>` : ""}
-      ${stream.conflict ? '<p class="stream-description warning" role="alert">Состав изменился в Keitaro. Отмените черновик, чтобы загрузить актуальные офферы.</p>' : ""}
+      ${warning ? `<p class="stream-description warning" role="alert">${safe(warning)}</p>` : ""}
       ${stream.editable ? renderOffers(stream) : ""}
     </article>`;
 }

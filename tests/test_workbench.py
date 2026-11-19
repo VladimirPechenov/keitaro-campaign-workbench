@@ -176,6 +176,73 @@ def test_refresh_archives_offer_removed_directly_in_keitaro(client):
     assert shares(published) == shares(draft)
 
 
+def test_pin_and_unpin_keep_current_shares_until_offers_change(client):
+    original = {101: 50, 102: 30, 103: 20}
+    tracker = client.app.state.tracker
+    tracker.set_offers(
+        4811,
+        [
+            {"offer_id": offer_id, "share": share, "state": "active"}
+            for offer_id, share in original.items()
+        ],
+    )
+    pinned = change(client, offer_flow(client), "pin", 103).json()
+    assert shares(pinned) == original
+    assert pinned["offers"][2]["pinned"]
+    unpinned = change(client, pinned, "unpin", 103).json()
+    assert shares(unpinned) == original
+    assert not unpinned["offers"][2]["pinned"]
+
+    pinned = change(client, unpinned, "pin", 103).json()
+    result = client.post(f"{DEMO_EDITOR}/publish", json={"version": pinned["version"]})
+    assert result.is_success
+    assert shares(result.json()) == original
+    added = change(client, result.json(), "add", 104).json()
+    assert shares(added) == {101: 27, 102: 27, 103: 20, 104: 26}
+
+
+def test_removing_last_destination_blocks_publish_but_keeps_draft(client):
+    tracker = client.app.state.tracker
+    tracker.set_offers(4811, [{"offer_id": 101, "share": 100, "state": "active"}])
+    draft = change(client, offer_flow(client), "remove", 101).json()
+    assert draft["staged"] and draft["publish_error"]
+    result = client.post(f"{DEMO_EDITOR}/publish", json={"version": draft["version"]})
+    assert result.status_code == 422
+    assert result.json()["detail"] == draft["publish_error"]
+    assert offer_flow(client) == draft
+    assert tracker.stream(4811)["offers"] == [{"offer_id": 101, "share": 100, "state": "active"}]
+
+    replaced = change(client, draft, "add", 104).json()
+    assert replaced["publish_error"] is None
+    result = client.post(f"{DEMO_EDITOR}/publish", json={"version": replaced["version"]})
+    assert result.is_success
+    assert shares(result.json()) == {104: 100}
+
+
+@pytest.mark.parametrize(
+    "stream_fields",
+    [
+        {"state": "disabled"},
+        {"landings": [{"landing_id": 51, "share": 100, "state": "active"}]},
+    ],
+)
+def test_last_offer_may_be_removed_if_stream_disabled_or_landing_remains(client, stream_fields):
+    tracker = client.app.state.tracker
+    tracker.request(
+        "PUT",
+        "/streams/4811",
+        json={
+            "offers": [{"offer_id": 101, "share": 100, "state": "active"}],
+            **stream_fields,
+        },
+    )
+    draft = change(client, offer_flow(client), "remove", 101).json()
+    assert draft["publish_error"] is None
+    result = client.post(f"{DEMO_EDITOR}/publish", json={"version": draft["version"]})
+    assert result.is_success
+    assert not tracker.stream(4811)["offers"]
+
+
 def test_conflict_preserves_remote_changes_and_can_be_discarded(client):
     draft = change(client, offer_flow(client), "add", 104).json()
     client.app.state.tracker.set_offers(4811, [{"offer_id": 105, "share": 100, "state": "active"}])
